@@ -16,51 +16,50 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Conversation history (for demo purposes, global array; use sessions for multiple users)
-let conversationHistory = [];
+// In-memory session storage (for demo; reset on server restart)
+const sessions = {};
 
-const systemPrompt = `
-You are Zeud, a highly intelligent, friendly, and helpful AI assistant.
-You can answer questions on any topic, provide advice, explain concepts clearly,
-generate creative content, and help with problem-solving.
-Always respond helpfully, conversationally, and politely.
-`;
-
-// Chat endpoint
 app.post("/chat", async (req, res) => {
   try {
-    const userMessage = req.body.message;
-    if (!userMessage) return res.status(400).json({ reply: "No message provided." });
+    const { sessionId, message } = req.body;
 
-    // Build messages array with system prompt + conversation history
-    const messages = [
-      { role: "system", content: systemPrompt },
-      ...conversationHistory,
-      { role: "user", content: userMessage },
-    ];
+    if (!sessionId || !message) {
+      return res.status(400).json({ reply: "Missing sessionId or message." });
+    }
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // Or "gpt-4" for more advanced responses
-      messages,
+    // Initialize session if not exists
+    if (!sessions[sessionId]) {
+      sessions[sessionId] = [
+        {
+          role: "system",
+          content:
+            "You are Zeud, a friendly, helpful, and witty AI chatbot. Answer questions clearly and politely. Engage in casual conversation, provide advice, and explain concepts when needed.",
+        },
+      ];
+    }
+
+    // Add user message to session
+    sessions[sessionId].push({ role: "user", content: message });
+
+    // Call OpenAI API with session messages
+    const response = await openai.chat.completions.create({
+      model: "gpt-4-turbo",
+      messages: sessions[sessionId],
+      temperature: 0.7, // adjust for creativity
     });
 
-    const reply = completion.choices[0].message.content;
+    const reply = response.choices[0].message.content;
 
-    // Update conversation history
-    conversationHistory.push({ role: "user", content: userMessage });
-    conversationHistory.push({ role: "assistant", content: reply });
+    // Add bot reply to session
+    sessions[sessionId].push({ role: "assistant", content: reply });
 
     res.json({ reply });
   } catch (err) {
     console.error(err);
-    res.json({ reply: "⚠️ Error calling OpenAI API" });
+    res.status(500).json({ reply: "⚠️ Error calling OpenAI API" });
   }
 });
 
-// Optional endpoint to clear conversation
-app.post("/reset", (req, res) => {
-  conversationHistory = [];
-  res.json({ reply: "Conversation history cleared." });
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
-
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
