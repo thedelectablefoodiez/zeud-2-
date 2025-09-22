@@ -38,7 +38,7 @@ app.post("/chat", async (req, res) => {
 
     // Call OpenAI Chat API
     const completion = await openai.createChatCompletion({
-      model: "gpt-4",
+      model: "gpt-3.5",
       messages: sessions[sessionId],
     });
 
