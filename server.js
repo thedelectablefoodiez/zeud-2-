@@ -1,59 +1,67 @@
 // server.js
 import express from "express";
 import cors from "cors";
-import { Configuration, OpenAIApi } from "openai";
+import dotenv from "dotenv";
+import OpenAI from "openai";
+
+dotenv.config();
 
 const app = express();
+const port = process.env.PORT || 10000;
+
 app.use(cors());
 app.use(express.json());
 
-// Configure OpenAI
-const configuration = new Configuration({
-  apiKey: process.env.OPENAI_API_KEY, // make sure this env var is set in Render
+// Initialize OpenAI with v5 SDK
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
 });
-const openai = new OpenAIApi(configuration);
 
-// Simple in-memory session store (for multi-turn conversations)
+// Simple in-memory session store
 const sessions = {};
 
-// Chat endpoint
+/**
+ * POST /chat
+ * Body: { sessionId: string, message: string }
+ * Response: { reply: string }
+ */
 app.post("/chat", async (req, res) => {
+  const { sessionId, message } = req.body;
+
+  if (!sessionId || !message) {
+    return res.status(400).json({ reply: "⚠️ Missing sessionId or message" });
+  }
+
+  // Initialize session if it doesn't exist
+  if (!sessions[sessionId]) sessions[sessionId] = [];
+
+  // Add user message to session
+  sessions[sessionId].push({ role: "user", content: message });
+
   try {
-    const { sessionId, message } = req.body;
-    if (!message) return res.json({ reply: "Please provide a message." });
-
-    // Initialize session history if not exists
-    if (!sessions[sessionId]) {
-      sessions[sessionId] = [
-        {
-          role: "system",
-          content:
-            "You are Zeud, a helpful, friendly AI assistant. Answer questions accurately and concisely.",
-        },
-      ];
-    }
-
-    // Add user message to session
-    sessions[sessionId].push({ role: "user", content: message });
-
-    // Call OpenAI Chat API
-    const completion = await openai.createChatCompletion({
-      model: "gpt-3.5",
+    // Call OpenAI Chat Completions
+    const completion = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo", // fallback if you don't have GPT-4 access
       messages: sessions[sessionId],
     });
 
-    const reply = completion.data.choices[0].message.content;
+    const reply = completion.choices[0].message.content;
 
-    // Save AI reply in session
+    // Save assistant reply to session
     sessions[sessionId].push({ role: "assistant", content: reply });
 
     res.json({ reply });
-  } catch (err) {
-    console.error("OpenAI API error:", err.response?.data || err.message);
-    res.json({ reply: "⚠️ Error calling OpenAI API" });
+  } catch (error) {
+    console.error("OpenAI API error:", error);
+    res.status(500).json({ reply: "⚠️ Error calling OpenAI API" });
   }
 });
 
-// Start server
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// Health check
+app.get("/", (req, res) => {
+  res.send("Zeud Chatbot Backend is running 🚀");
+});
+
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
