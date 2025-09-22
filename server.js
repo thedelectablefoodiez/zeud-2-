@@ -1,39 +1,34 @@
 // server.js
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
-import OpenAI from "openai";
-
-dotenv.config();
+import { Configuration, OpenAIApi } from "openai";
 
 const app = express();
-const PORT = process.env.PORT || 10000;
-
 app.use(cors());
 app.use(express.json());
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+// Configure OpenAI
+const configuration = new Configuration({
+  apiKey: process.env.OPENAI_API_KEY, // make sure this env var is set in Render
 });
+const openai = new OpenAIApi(configuration);
 
-// In-memory session storage (for demo; reset on server restart)
+// Simple in-memory session store (for multi-turn conversations)
 const sessions = {};
 
+// Chat endpoint
 app.post("/chat", async (req, res) => {
   try {
     const { sessionId, message } = req.body;
+    if (!message) return res.json({ reply: "Please provide a message." });
 
-    if (!sessionId || !message) {
-      return res.status(400).json({ reply: "Missing sessionId or message." });
-    }
-
-    // Initialize session if not exists
+    // Initialize session history if not exists
     if (!sessions[sessionId]) {
       sessions[sessionId] = [
         {
           role: "system",
           content:
-            "You are Zeud, a friendly, helpful, and witty AI chatbot. Answer questions clearly and politely. Engage in casual conversation, provide advice, and explain concepts when needed.",
+            "You are Zeud, a helpful, friendly AI assistant. Answer questions accurately and concisely.",
         },
       ];
     }
@@ -41,25 +36,24 @@ app.post("/chat", async (req, res) => {
     // Add user message to session
     sessions[sessionId].push({ role: "user", content: message });
 
-    // Call OpenAI API with session messages
-    const response = await openai.chat.completions.create({
-      model: "gpt-4-turbo",
+    // Call OpenAI Chat API
+    const completion = await openai.createChatCompletion({
+      model: "gpt-4",
       messages: sessions[sessionId],
-      temperature: 0.7, // adjust for creativity
     });
 
-    const reply = response.choices[0].message.content;
+    const reply = completion.data.choices[0].message.content;
 
-    // Add bot reply to session
+    // Save AI reply in session
     sessions[sessionId].push({ role: "assistant", content: reply });
 
     res.json({ reply });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ reply: "⚠️ Error calling OpenAI API" });
+    console.error("OpenAI API error:", err.response?.data || err.message);
+    res.json({ reply: "⚠️ Error calling OpenAI API" });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// Start server
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
